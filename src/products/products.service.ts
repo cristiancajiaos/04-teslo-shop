@@ -29,6 +29,7 @@ export class ProductsService {
   ) {}
 
   async create(createProductDto: CreateProductDto) {
+    console.log('create');
     try {
       const {images = [], ...productDetails } = createProductDto;
       
@@ -36,6 +37,7 @@ export class ProductsService {
         ...productDetails,
         images: images.map(image => this.productImageRepository.create({url: image}))
       });
+      console.log(product);
       await this.productRepository.save(product);
       return {...product, images};
     } catch (error) {
@@ -164,7 +166,7 @@ export class ProductsService {
   async deleteAllProducts() {
     const query = this.productRepository.createQueryBuilder('product');
     try {
-      return await query.delete().from('product').execute();
+      return await query.delete().from('products').execute();
     } catch (error) {
       this.handleDBExceptions(error);
     }
