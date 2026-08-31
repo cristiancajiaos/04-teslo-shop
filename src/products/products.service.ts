@@ -13,6 +13,7 @@ import { Product } from './entities/product.entity';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { validate as isUUID } from 'uuid';
 import { ProductImage } from './entities';
+import { DataSource } from 'typeorm';
 
 @Injectable()
 export class ProductsService {
@@ -22,7 +23,9 @@ export class ProductsService {
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
     @InjectRepository(ProductImage)
-    private readonly productImageRepository: Repository<ProductImage>
+    private readonly productImageRepository: Repository<ProductImage>,
+
+    private readonly dataSource: DataSource
   ) {}
 
   async create(createProductDto: CreateProductDto) {
@@ -93,21 +96,42 @@ export class ProductsService {
   }
 
   async update(id: string, updateProductDto: UpdateProductDto) {
+    const { images, ...toUpdate } = updateProductDto;
+
     const product = await this.productRepository.preload({
       id: id,
-      ...updateProductDto,
-      images: []
+      ...toUpdate
     });
 
     if (!product) {
       throw new NotFoundException(`Product with ID ${id} not found`);
     }
 
+    // Create query runner
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
     try {
-      await this.productRepository.save(product);
-      return product;
+      if (images) {
+        await queryRunner.manager.delete(ProductImage, {product: {id}});
+        product.images = images.map(
+          image => this.productImageRepository.create({url: image})
+        )
+      } else {
+        // product.images = await this.productImageRepository.findBy({product: {id}});
+      }
+      await queryRunner.manager.save(product);
+      // await this.productRepository.save(product);
+      await queryRunner.commitTransaction();
+      await queryRunner.release();
+
+      return this.findOnePlain(id);
     } catch (error) {
+      await queryRunner.rollbackTransaction();
+      await queryRunner.release();
       this.handleDBExceptions(error);
+      
     }
   }
 
@@ -118,8 +142,12 @@ export class ProductsService {
       return new NotFoundException(`Product with ID ${id} not found`);
     }
 
-    this.productRepository.delete({ id: id });
-
+    try {
+      await this.productRepository.delete({ id: id });
+    } catch (error) {
+      this.handleDBExceptions(error);
+    }
+    
     return;
   }
 
