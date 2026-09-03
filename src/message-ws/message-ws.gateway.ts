@@ -2,6 +2,8 @@ import { OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, WebSocketGa
 import { MessageWsService } from './message-ws.service';
 import { Server, Socket } from 'socket.io';
 import { NewMessageDto } from './dto/new-message.dto';
+import { JwtService } from '@nestjs/jwt';
+import { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 
 
 @WebSocketGateway({cors: true, namespace: '/'})
@@ -9,14 +11,26 @@ export class MessageWsGateway implements OnGatewayConnection, OnGatewayDisconnec
 
   @WebSocketServer() wss: Server;
 
-  constructor(private readonly messageWsService: MessageWsService) {}
+  constructor(
+    private readonly messageWsService: MessageWsService,
+    private readonly jwtService: JwtService
+  ) {}
   
-  handleConnection(client: Socket) {
+  async handleConnection(client: Socket) {
     const token = client.handshake.headers.authentication as string;
+    let payload: JwtPayload
     console.log(token);
 
+    try {
+      payload = this.jwtService.verify(token);
+      await this.messageWsService.registerClient(client, payload.id);
+      console.log({payload});
+    } catch (error) {
+      client.disconnect();
+    }
 
-    this.messageWsService.registerClient(client);
+    // console.log({payload})
+
     // console.log({conectados: this.messageWsService.getConnectedClients()});
     this.wss.emit('clients-updated', this.messageWsService.getConnectedClients());
   }
@@ -47,8 +61,9 @@ export class MessageWsGateway implements OnGatewayConnection, OnGatewayDisconnec
     });
     */
 
+    // Emite a todos los usuarios
     this.wss.emit('message-from-server', {
-      fullName: 'Yo',
+      fullName: this.messageWsService.getUserFullName(client.id),
       message: payload.message || 'no message!'
     });
 
